@@ -29,7 +29,9 @@ jobs:
           python pipeline.py backfill
           python build_dashboard.py
           mkdir -p _site
-          cp dashboard.html _site/index.html
+          cp index.html dashboard.html 
+          cook.html uta.html 
+          partnership.html _site/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
