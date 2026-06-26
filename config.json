@@ -1,0 +1,21 @@
+{
+  "_comment": "Edit this file to change which organizations are tracked. 'query' is the PubMed affiliation search (broad, to catch everything). 'match' are the lowercase phrases used to verify/attribute each author's affiliation locally. Add more variants if you find papers being missed.",
+  "contact_email": "profdennislal@gmail.com",
+  "tool_name": "cook-uta-research-dashboard",
+  "genetics_keywords": ["gene", "genes", "genetic", "genetics", "genomic", "genomics", "mutation", "mutations"],
+  "_genetics_note": "A paper is flagged 'genetics' if its title OR abstract contains any of these whole words (case-insensitive). The user asked for gene/genetic/genetics/genomics/mutation; plurals and 'genomic' were added for completeness.",
+  "organizations": [
+    {
+      "id": "cook",
+      "name": "Cook Children's",
+      "query": "\"Cook Children\"[Affiliation]",
+      "match": ["cook children"]
+    },
+    {
+      "id": "uta",
+      "name": "UT Arlington",
+      "query": "\"University of Texas at Arlington\"[Affiliation] OR \"University of Texas Arlington\"[Affiliation] OR \"UT Arlington\"[Affiliation] OR \"Univ Texas Arlington\"[Affiliation]",
+      "match": ["university of texas at arlington", "university of texas arlington", "ut arlington", "univ texas arlington", "univ. of texas at arlington"]
+    }
+  ]
+}
