@@ -1,9 +1,8 @@
 {
-  "_comment": "Edit this file to change which organizations are tracked. 'query' is the PubMed affiliation search (broad, to catch everything). 'match' are the lowercase phrases used to verify/attribute each author's affiliation locally. Add more variants if you find papers being missed.",
+  "_comment": "Edit org queries/match phrases, research themes, and dept->group mappings here.",
   "contact_email": "profdennislal@gmail.com",
   "tool_name": "cook-uta-research-dashboard",
   "genetics_keywords": ["gene", "genes", "genetic", "genetics", "genomic", "genomics", "mutation", "mutations"],
-  "_genetics_note": "A paper is flagged 'genetics' if its title OR abstract contains any of these whole words (case-insensitive). The user asked for gene/genetic/genetics/genomics/mutation; plurals and 'genomic' were added for completeness.",
   "organizations": [
     {
       "id": "cook",
@@ -17,5 +16,42 @@
       "query": "\"University of Texas at Arlington\"[Affiliation] OR \"University of Texas Arlington\"[Affiliation] OR \"UT Arlington\"[Affiliation] OR \"Univ Texas Arlington\"[Affiliation]",
       "match": ["university of texas at arlington", "university of texas arlington", "ut arlington", "univ texas arlington", "univ. of texas at arlington"]
     }
-  ]
+  ],
+  "_themes_note": "A paper gets a theme if its title/abstract/MeSH/keywords contain any phrase (case-insensitive substring). Stems like 'epilep','oncolog' are intentional.",
+  "themes": [
+    {"id": "genetics", "name": "Genetics", "kw": ["gene ", "genes", "genetic", "genomic", "mutation", "variant", "sequencing", "exome", "genome", "allele", "chromosom", "inherited"]},
+    {"id": "precision", "name": "Precision medicine", "kw": ["precision medicine", "personalized medicine", "personalised medicine", "pharmacogenom", "targeted therap", "biomarker", "companion diagnostic", "molecular profiling", "next-generation sequencing", "whole exome", "whole genome", "molecularly targeted"]},
+    {"id": "oncology", "name": "Oncology", "kw": ["cancer", "tumor", "tumour", "oncolog", "carcinoma", "leukemia", "leukaemia", "lymphoma", "sarcoma", "melanoma", "neoplas", "chemotherap", "immunotherap", "metasta", "malignan"]},
+    {"id": "epilepsy", "name": "Epilepsy", "kw": ["epilep", "seizure", "anticonvulsant", "antiseizure", "electroencephalograph", "ictal", "convulsion", "dravet", "lennox"]},
+    {"id": "cardiology", "name": "Cardiology", "kw": ["cardiac", "cardiovascular", "cardiolog", "arrhythmia", "echocardiograph", "myocard", "coronary", "atrial", "ventricular", "congenital heart", "heart failure", "heart disease"]}
+  ],
+  "_groups_note": "Maps an author's parsed department (lowercased substring) to a College (UTA) or service line (Cook). First match wins; unmatched -> 'Other'.",
+  "groups": {
+    "uta": [
+      {"group": "College of Science", "match": ["chemistry", "biochem", "physics", "biolog", "mathematic", "psycholog", "earth", "environmental science", "data science", "statistic", "wildlife", "fisheries", "physiolog", "science"]},
+      {"group": "College of Engineering", "match": ["bioengineering", "biomedical engineering", "engineering", "computer science", "materials science", "construction", "industrial", "manufacturing", "informatics", "computing", "aerospace", "mechanical"]},
+      {"group": "College of Nursing & Health Innovation", "match": ["nursing", "kinesiolog", "health innovation", "health profession", "nutrition", "exercise", "public health", "epidemiolog", "health services", "physical therapy", "athletic"]},
+      {"group": "College of Social Work", "match": ["social work"]},
+      {"group": "College of Liberal Arts", "match": ["sociolog", "anthropolog", "linguistic", "history", "english", "communication", "criminolog", "modern language", "philosophy", "political", "liberal arts", "art"]},
+      {"group": "College of Business", "match": ["business", "accounting", "economic", "marketing", "management", "finance", "information systems"]},
+      {"group": "College of Education", "match": ["education", "curriculum", "teaching"]},
+      {"group": "College of Architecture, Planning & Public Affairs", "match": ["architecture", "planning", "public affairs", "urban"]},
+      {"group": "Medicine & Clinical (affiliated)", "match": ["psychiatry", "cardiolog", "cardiovascular", "radiolog", "internal medicine", "family medicine", "orthopedic", "plastic surgery", "obstetric", "radiation oncology", "pathology", "pediatric", "veterans affairs", "sports cardiology", "anesthes", "surgery", "medicine", "pharmaceut", "health"]}
+    ],
+    "cook": [
+      {"group": "Neurosciences", "match": ["neurolog", "neurosurg", "neuroscience", "epilep", "child neurology"]},
+      {"group": "Hematology & Oncology", "match": ["hematolog", "haematolog", "oncolog", "cancer", "hematology/oncology"]},
+      {"group": "Endocrinology & Diabetes", "match": ["endocrin", "diabet"]},
+      {"group": "Cardiology", "match": ["cardiolog", "cardiac", "cardiovascular", "heart"]},
+      {"group": "Neonatology", "match": ["neonat", "newborn", "perinat"]},
+      {"group": "Surgery & Urology", "match": ["surg", "urolog", "orthop", "otolaryngolog", "ophthalmolog", "craniofacial", "plastic", "ear"]},
+      {"group": "Anesthesiology & Critical Care", "match": ["anesthes", "anaesthes", "critical care", "pain management", "trauma", "urgent care", "emergency"]},
+      {"group": "Pathology & Laboratory", "match": ["patholog", "laborator", "immunolog"]},
+      {"group": "Radiology & Imaging", "match": ["radiolog", "imaging"]},
+      {"group": "Pharmacy", "match": ["pharmac"]},
+      {"group": "Rehabilitation & Behavioral Health", "match": ["rehabilitation", "behavior analysis", "physical therapy", "mind health", "psych", "developmental"]},
+      {"group": "Research & Genetics", "match": ["research", "clinical and translational", "genetic", "bioengineering", "biostatistic"]},
+      {"group": "General Pediatrics & Medicine", "match": ["pediatric", "paediatric", "medicine", "child", "hospital", "infectious", "nephrolog", "pulmonolog", "gastroenterolog", "rheumatolog", "public health", "nursing", "health sciences", "nutrition", "primary care"]}
+    ]
+  }
 }

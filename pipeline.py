@@ -30,6 +30,30 @@ TOOL = CONFIG.get("tool_name", "research-dashboard")
 GEN_KW = CONFIG.get("genetics_keywords", ["gene", "genetic", "genetics", "genomics", "mutation"])
 GENETICS_RE = re.compile(r"\b(?:" + "|".join(re.escape(k) for k in GEN_KW) + r")\b", re.IGNORECASE)
 
+# research themes: each id -> list of lowercase substrings to look for in title+abstract+mesh+keywords
+THEMES = [(t["id"], [k.lower() for k in t["kw"]]) for t in CONFIG.get("themes", [])]
+
+# map a PubMed PublicationType list to one evidence-level bucket
+def study_type(pub_types):
+    p = " | ".join(pub_types).lower()
+    if "meta-analysis" in p:
+        return "Meta-analysis"
+    if "systematic review" in p:
+        return "Systematic review"
+    if "randomized controlled trial" in p:
+        return "Randomized controlled trial"
+    if "clinical trial" in p or "controlled clinical trial" in p:
+        return "Clinical trial"
+    if "observational study" in p or "comparative study" in p:
+        return "Observational study"
+    if "case reports" in p:
+        return "Case report"
+    if "review" in p:
+        return "Review"
+    return "Other"
+
+TRIAL_TYPES = {"Randomized controlled trial", "Clinical trial"}
+
 DEPT_RE = re.compile(
     r"\b(?:Department|Dept\.?|Division|Center|Centre|Institute|School|"
     r"College|Section|Laboratory|Lab|Program|Programme|Unit) of ([^,;\.\(]+)",
@@ -178,6 +202,12 @@ def parse_article(art):
     abstract = " ".join(_text(a) or "" for a in art.findall(".//Abstract/AbstractText"))
     is_genetics = 1 if GENETICS_RE.search(title + " " + abstract) else 0
 
+    # publication types -> study-type bucket + clinical-trial registry IDs
+    pub_types = [pt.text for pt in art.findall(".//PublicationTypeList/PublicationType") if pt.text]
+    stype = study_type(pub_types)
+    nct = sorted({a.text for a in art.findall(".//DataBankList/DataBank/AccessionNumberList/AccessionNumber")
+                  if a.text and a.text.upper().startswith("NCT")})
+
     doi = None
     for eid in art.findall(".//ELocationID"):
         if eid.get("EIdType") == "doi":
@@ -243,11 +273,16 @@ def parse_article(art):
     else:
         topic = journal or "Uncategorized"
 
+    hay = (title + " " + abstract + " " + " ".join(m["term"] for m in mesh)
+           + " " + " ".join(keywords)).lower()
+    themes = [tid for tid, kws in THEMES if any(k in hay for k in kws)]
+
     return {
         "pmid": pmid, "title": title, "journal": journal, "pub_year": pub_year,
         "entry_date": entry_date, "doi": doi, "authors": authors,
         "mesh": [m["term"] for m in mesh], "keywords": keywords, "topic": topic,
         "orgs": paper_orgs, "issn": issn, "is_genetics": is_genetics,
+        "themes": themes, "pub_types": pub_types, "study_type": stype, "nct": nct,
     }
 
 
@@ -259,7 +294,10 @@ def init_db(con):
         title TEXT, journal TEXT, pub_year INTEGER,
         entry_date TEXT, doi TEXT, topic TEXT,
         orgs TEXT, mesh TEXT, keywords TEXT, authors TEXT,
-        first_seen TEXT, issn TEXT, is_genetics INTEGER DEFAULT 0
+        first_seen TEXT, issn TEXT, is_genetics INTEGER DEFAULT 0,
+        themes TEXT, pub_types TEXT, study_type TEXT, nct TEXT,
+        citations INTEGER, cit_updated TEXT, rcr REAL, rcr_updated TEXT,
+        recent_cit INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_year ON papers(pub_year);
     CREATE INDEX IF NOT EXISTS idx_entry ON papers(entry_date);
@@ -269,7 +307,10 @@ def init_db(con):
     );
     """)
     # add columns if upgrading an older DB (ignore if they already exist)
-    for col, decl in [("issn", "TEXT"), ("is_genetics", "INTEGER DEFAULT 0")]:
+    for col, decl in [("issn", "TEXT"), ("is_genetics", "INTEGER DEFAULT 0"),
+                      ("themes", "TEXT"), ("pub_types", "TEXT"), ("study_type", "TEXT"),
+                      ("nct", "TEXT"), ("citations", "INTEGER"), ("cit_updated", "TEXT"),
+                      ("rcr", "REAL"), ("rcr_updated", "TEXT"), ("recent_cit", "INTEGER")]:
         try:
             con.execute(f"ALTER TABLE papers ADD COLUMN {col} {decl}")
         except sqlite3.OperationalError:
@@ -282,18 +323,21 @@ def upsert(con, p, today):
     row = cur.fetchone()
     first_seen = row[0] if row else today
     con.execute("""
-        INSERT INTO papers (pmid,title,journal,pub_year,entry_date,doi,topic,orgs,mesh,keywords,authors,first_seen,issn,is_genetics)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        INSERT INTO papers (pmid,title,journal,pub_year,entry_date,doi,topic,orgs,mesh,keywords,authors,first_seen,issn,is_genetics,themes,pub_types,study_type,nct)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(pmid) DO UPDATE SET
             title=excluded.title, journal=excluded.journal, pub_year=excluded.pub_year,
             entry_date=excluded.entry_date, doi=excluded.doi, topic=excluded.topic,
             orgs=excluded.orgs, mesh=excluded.mesh, keywords=excluded.keywords,
-            authors=excluded.authors, issn=excluded.issn, is_genetics=excluded.is_genetics
+            authors=excluded.authors, issn=excluded.issn, is_genetics=excluded.is_genetics,
+            themes=excluded.themes, pub_types=excluded.pub_types,
+            study_type=excluded.study_type, nct=excluded.nct
     """, (
         p["pmid"], p["title"], p["journal"], p["pub_year"], p["entry_date"], p["doi"],
         p["topic"], json.dumps(p["orgs"]), json.dumps(p["mesh"]),
         json.dumps(p["keywords"]), json.dumps(p["authors"]), first_seen,
-        p["issn"], p["is_genetics"],
+        p["issn"], p["is_genetics"], json.dumps(p["themes"]), json.dumps(p["pub_types"]),
+        p["study_type"], json.dumps(p["nct"]),
     ))
     return row is None  # True if newly inserted
 
@@ -355,6 +399,95 @@ def update_impact_factors(con):
     print(f"  impact factors: {matched} journals now have a metric", flush=True)
 
 
+# ------------------------------------------------ citation counts (OpenAlex)
+def update_citations(con, full=False):
+    """Fetch per-paper citation counts from OpenAlex (free), batched by PMID.
+    full=True refreshes everything; otherwise only papers missing a count or
+    whose count is older than 30 days."""
+    today = datetime.date.today().isoformat()
+    cutoff = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
+    if full:
+        rows = con.execute("SELECT pmid FROM papers").fetchall()
+    else:
+        rows = con.execute(
+            "SELECT pmid FROM papers WHERE citations IS NULL OR cit_updated IS NULL OR cit_updated < ?",
+            (cutoff,)).fetchall()
+    todo = [r[0] for r in rows]
+    if not todo:
+        print("  citations: cache up to date", flush=True)
+        return
+    print(f"  citations: looking up {len(todo)} papers via OpenAlex (batched 50)...", flush=True)
+    done = 0
+    for i in range(0, len(todo), 50):
+        batch = todo[i:i + 50]
+        url = ("https://api.openalex.org/works?per-page=50"
+               f"&mailto={urllib.parse.quote(EMAIL)}&select=ids,cited_by_count,counts_by_year"
+               f"&filter=pmid:{'|'.join(batch)}")
+        recent_years = {datetime.date.today().year, datetime.date.today().year - 1}
+        found = {}
+        try:
+            for w in json.loads(_get(url, retries=3)).get("results", []):
+                pm = (w.get("ids") or {}).get("pmid", "")
+                m = re.search(r"(\d+)$", pm or "")
+                if m:
+                    recent = sum(c.get("cited_by_count", 0) for c in (w.get("counts_by_year") or [])
+                                 if c.get("year") in recent_years)
+                    found[m.group(1)] = (w.get("cited_by_count", 0), recent)
+        except Exception:  # noqa
+            pass
+        for pmid in batch:
+            cby, rec = found.get(pmid, (None, None))
+            con.execute("UPDATE papers SET citations=?, recent_cit=?, cit_updated=? WHERE pmid=?",
+                        (cby, rec, today, pmid))
+        done += len(batch)
+        if done % 500 == 0 or done == len(todo):
+            con.commit()
+            print(f"    ...{done}/{len(todo)} papers", flush=True)
+        time.sleep(0.15)
+    con.commit()
+
+
+# ------------------------------------------------ field-normalized impact (NIH iCite RCR)
+def update_rcr(con, full=False):
+    """Relative Citation Ratio from NIH iCite (free) -- a field- and time-normalized
+    citation metric where 1.0 = average NIH-funded paper in the same field/year.
+    Lets you compare impact fairly across disciplines (chemistry vs social work)."""
+    today = datetime.date.today().isoformat()
+    cutoff = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
+    if full:
+        rows = con.execute("SELECT pmid FROM papers").fetchall()
+    else:
+        rows = con.execute(
+            "SELECT pmid FROM papers WHERE rcr_updated IS NULL OR rcr_updated < ?",
+            (cutoff,)).fetchall()
+    todo = [r[0] for r in rows]
+    if not todo:
+        print("  RCR: cache up to date", flush=True)
+        return
+    print(f"  RCR (NIH iCite): looking up {len(todo)} papers (batched 200)...", flush=True)
+    done = 0
+    for i in range(0, len(todo), 200):
+        batch = todo[i:i + 200]
+        url = "https://icite.od.nih.gov/api/pubs?pmids=" + ",".join(batch)
+        found = {}
+        try:
+            for rec in json.loads(_get(url, retries=3)).get("data", []):
+                pm = str(rec.get("pmid"))
+                found[pm] = rec.get("relative_citation_ratio")
+        except Exception:  # noqa
+            pass
+        for pmid in batch:
+            con.execute("UPDATE papers SET rcr=?, rcr_updated=? WHERE pmid=?",
+                        (found.get(pmid), today, pmid))
+        done += len(batch)
+        con.commit()
+        if done % 1000 == 0 or done == len(todo):
+            print(f"    ...{done}/{len(todo)} papers", flush=True)
+        time.sleep(0.2)
+    matched = con.execute("SELECT COUNT(*) FROM papers WHERE rcr IS NOT NULL").fetchone()[0]
+    print(f"  RCR: {matched} papers have a field-normalized score", flush=True)
+
+
 # ---------------------------------------------------------------- run
 def run(mode):
     today = datetime.date.today().isoformat()
@@ -385,6 +518,8 @@ def run(mode):
             con.commit()
             print(f"  ...processed {kept} verified papers", flush=True)
     update_impact_factors(con)
+    update_citations(con, full=(mode == "backfill"))
+    update_rcr(con, full=(mode == "backfill"))
     con.execute("INSERT INTO meta(key,value) VALUES('last_run',?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (today + "T" + datetime.datetime.now().strftime("%H:%M"),))
     con.commit()
