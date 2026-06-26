@@ -1,17 +1,21 @@
 name: Update & publish research dashboard
+
 on:
   schedule:
     - cron: "23 10 * * *"
   workflow_dispatch:
   push:
     branches: [ main ]
+
 permissions:
   contents: read
   pages: write
   id-token: write
+
 concurrency:
   group: pages
   cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -19,22 +23,30 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Fetch papers and build the dashboard
         run: |
           mkdir -p data
           python pipeline.py backfill
           python build_dashboard.py
           mkdir -p _site
-          cp index.html dashboard.html 
-          cook.html uta.html 
-          partnership.html _site/
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+          cp index.html dashboard.html cook.html uta.html partnership.html _site/
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
         with:
           path: _site
-      - uses: actions/deploy-pages@v4
+
+      - name: Deploy to GitHub Pages
         id: deploy
+        uses: actions/deploy-pages@v4
