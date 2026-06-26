@@ -297,7 +297,7 @@ def init_db(con):
         first_seen TEXT, issn TEXT, is_genetics INTEGER DEFAULT 0,
         themes TEXT, pub_types TEXT, study_type TEXT, nct TEXT,
         citations INTEGER, cit_updated TEXT, rcr REAL, rcr_updated TEXT,
-        recent_cit INTEGER
+        recent_cit INTEGER, annotations TEXT, ann_updated TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_year ON papers(pub_year);
     CREATE INDEX IF NOT EXISTS idx_entry ON papers(entry_date);
@@ -310,7 +310,8 @@ def init_db(con):
     for col, decl in [("issn", "TEXT"), ("is_genetics", "INTEGER DEFAULT 0"),
                       ("themes", "TEXT"), ("pub_types", "TEXT"), ("study_type", "TEXT"),
                       ("nct", "TEXT"), ("citations", "INTEGER"), ("cit_updated", "TEXT"),
-                      ("rcr", "REAL"), ("rcr_updated", "TEXT"), ("recent_cit", "INTEGER")]:
+                      ("rcr", "REAL"), ("rcr_updated", "TEXT"), ("recent_cit", "INTEGER"),
+                      ("annotations", "TEXT"), ("ann_updated", "TEXT")]:
         try:
             con.execute(f"ALTER TABLE papers ADD COLUMN {col} {decl}")
         except sqlite3.OperationalError:
@@ -488,6 +489,70 @@ def update_rcr(con, full=False):
     print(f"  RCR: {matched} papers have a field-normalized score", flush=True)
 
 
+# ------------------------------------------------ bioconcept annotations (NCBI PubTator3)
+PT_BUCKET = {"Gene": "g", "Disease": "d", "Chemical": "c",
+             "Mutation": "v", "Variant": "v", "DNAMutation": "v",
+             "ProteinMutation": "v", "SNP": "v", "DNAAcidChange": "v"}
+
+
+def update_annotations(con, full=False):
+    """Per-paper normalized bioconcepts (genes, diseases, chemicals, variants) from
+    NCBI PubTator3. Biomedical only -- non-bio papers simply get no entities. Cached."""
+    today = datetime.date.today().isoformat()
+    cutoff = (datetime.date.today() - datetime.timedelta(days=60)).isoformat()
+    if full:
+        rows = con.execute("SELECT pmid FROM papers").fetchall()
+    else:
+        rows = con.execute(
+            "SELECT pmid FROM papers WHERE ann_updated IS NULL OR ann_updated < ?", (cutoff,)).fetchall()
+    todo = [r[0] for r in rows]
+    if not todo:
+        print("  annotations: cache up to date", flush=True)
+        return
+    print(f"  annotations (PubTator3): looking up {len(todo)} papers (batched 100)...", flush=True)
+    base = "https://www.ncbi.nlm.nih.gov/research/pubtator3-api/publications/export/biocjson"
+    done = 0
+    for i in range(0, len(todo), 100):
+        batch = todo[i:i + 100]
+        url = base + "?pmids=" + ",".join(batch)
+        per = {pmid: {} for pmid in batch}   # pmid -> bucket -> {id: [count, text]}
+        try:
+            docs = json.loads(_get(url, retries=3)).get("PubTator3", [])
+            for doc in docs:
+                pm = str(doc.get("pmid") or doc.get("id") or "")
+                if pm not in per:
+                    continue
+                for pas in doc.get("passages", []):
+                    for a in pas.get("annotations", []):
+                        inf = a.get("infons", {})
+                        b = PT_BUCKET.get(inf.get("type"))
+                        txt = (a.get("text") or "").strip()
+                        if not b or not txt:
+                            continue
+                        key = inf.get("identifier") or txt.lower()
+                        slot = per[pm].setdefault(b, {})
+                        if key in slot:
+                            slot[key][0] += 1
+                        else:
+                            slot[key] = [1, txt]
+        except Exception:  # noqa
+            pass
+        for pmid in batch:
+            out = {}
+            for b, slot in per[pmid].items():
+                top = sorted(slot.values(), key=lambda x: -x[0])[:8]
+                out[b] = [t[1] for t in top]
+            con.execute("UPDATE papers SET annotations=?, ann_updated=? WHERE pmid=?",
+                        (json.dumps(out) if out else None, today, pmid))
+        done += len(batch)
+        con.commit()
+        if done % 500 == 0 or done == len(todo):
+            print(f"    ...{done}/{len(todo)} papers", flush=True)
+        time.sleep(0.34)
+    n = con.execute("SELECT COUNT(*) FROM papers WHERE annotations IS NOT NULL").fetchone()[0]
+    print(f"  annotations: {n} papers have bioconcepts", flush=True)
+
+
 # ---------------------------------------------------------------- run
 def run(mode):
     today = datetime.date.today().isoformat()
@@ -520,6 +585,7 @@ def run(mode):
     update_impact_factors(con)
     update_citations(con, full=(mode == "backfill"))
     update_rcr(con, full=(mode == "backfill"))
+    update_annotations(con, full=(mode == "backfill"))
     con.execute("INSERT INTO meta(key,value) VALUES('last_run',?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (today + "T" + datetime.datetime.now().strftime("%H:%M"),))
     con.commit()

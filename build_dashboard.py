@@ -159,10 +159,10 @@ def build_payload():
     papers = []
     authstats = {}   # raw author name -> {count, orcids} for conservative merging
     for row in con.execute(
-        "SELECT pmid,title,journal,pub_year,entry_date,doi,topic,orgs,mesh,authors,issn,is_genetics,first_seen,themes,study_type,nct,citations,rcr,recent_cit FROM papers"
+        "SELECT pmid,title,journal,pub_year,entry_date,doi,topic,orgs,mesh,authors,issn,is_genetics,first_seen,themes,study_type,nct,citations,rcr,recent_cit,annotations FROM papers"
     ):
         (pmid, title, journal, year, entry, doi, topic, orgs, mesh, authors, issn, is_gen,
-         first_seen, themes, stype, nct, cit, rcr, rec_cit) = row
+         first_seen, themes, stype, nct, cit, rcr, rec_cit, annotations) = row
         orgs = json.loads(orgs)
         if not orgs:
             continue
@@ -186,6 +186,7 @@ def build_payload():
         jif = jifmap.get(issn)
         themes = json.loads(themes or "[]")
         nctn = len(json.loads(nct or "[]"))
+        ann = json.loads(annotations or "{}")
         papers.append({
             "p": pmid, "t": title, "j": journal, "y": year, "e": entry,
             "doi": doi, "o": orgs, "a": org_authors, "tg": tags,
@@ -199,6 +200,8 @@ def build_payload():
             "c": cit,                         # all-time citation count (may be null)
             "rc": rec_cit,                    # citations earned in the last ~2 years ("hot now")
             "r": round(rcr, 2) if rcr is not None else None,  # field-normalized RCR
+            "eg": ann.get("g", [])[:6], "ed": ann.get("d", [])[:6],
+            "ec": ann.get("c", [])[:6], "ev": ann.get("v", [])[:6],  # PubTator3 entities
         })
     con.close()
 
@@ -514,8 +517,12 @@ TEMPLATE = r"""<!DOCTYPE html>
   <div id="sec-departments"></div>
   <div class="panel"><h2>What the work is about <span class="hint">most frequent words in paper titles · current filter</span></h2><div class="cloud" id="cloudMain"></div></div>
 
-  <div class="panel"><h2>Most cited papers <span class="hint" id="citHint"></span>
-    <span style="float:right;display:flex;gap:6px"><button class="btn helptip" id="citAll" data-cm="all" title="Rank by total lifetime citations">All-time</button><button class="btn helptip" id="citRecent" data-cm="recent" title="Rank by citations earned in the last ~2 years — current momentum, not lifetime totals">⚡ Hot now</button></span></h2>
+  <div class="panel"><h2 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">Biomedical concepts <span class="hint" style="flex:1 1 auto">normalized entities from abstracts (NCBI PubTator3) · current filter</span>
+    <span style="display:flex;gap:6px" id="entToggle"><button class="btn" data-et="eg">Genes</button><button class="btn" data-et="ed">Diseases</button><button class="btn" data-et="ec">Drugs</button></span></h2>
+    <div id="entBox"></div></div>
+
+  <div class="panel"><h2 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">Most cited papers <span class="hint" id="citHint" style="flex:1 1 auto"></span>
+    <span style="display:flex;gap:6px"><button class="btn helptip" id="citAll" data-cm="all" title="Rank by total lifetime citations">All-time</button><button class="btn helptip" id="citRecent" data-cm="recent" title="Rank by citations earned in the last ~2 years — current momentum, not lifetime totals">⚡ Hot now</button></span></h2>
     <div class="plist" id="mostcited" style="max-height:320px"></div></div>
 
   <div class="grid" style="grid-template-columns:1fr 1fr">
@@ -582,7 +589,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <script>
 const DATA = __DATA__;
 const ORG = DATA.orgs;
-const state = {org:"all", rel:"all", years:[], split:"dept", search:"", hyper:true, ifmin:0, themes:[], stype:"all", cmetric:"papers", cdim:"year", citmode:"all", theme:"dark"};
+const state = {org:"all", rel:"all", years:[], split:"dept", search:"", hyper:true, ifmin:0, themes:[], stype:"all", cmetric:"papers", cdim:"year", citmode:"all", theme:"dark", entmode:"eg"};
 const THEMES = DATA.themes || {};
 const HYPER_MAX = 50;  // papers with more authors than this are "mega-collaborations"
 const IF_LEVELS = [[0,"Any"],[3,"&gt; 3"],[7,"&gt; 7"],[20,"&gt; 20"]];
@@ -856,6 +863,9 @@ const DIMS={
   theme:["research theme", p=>(p.th||[]).map(t=>THEMES[t]||t)],
   study:["study type", p=>[p.st||"Other"]],
   topic:["topic", p=>p.tg||[]],
+  gene:["gene (PubTator3)", p=>p.eg||[]],
+  disease:["disease (PubTator3)", p=>p.ed||[]],
+  drug:["drug / chemical (PubTator3)", p=>p.ec||[]],
   journal:["journal", p=>p.j?[p.j]:[]],
   org:["organization", p=>p.o.map(o=>ORG[o])],
 };
@@ -930,6 +940,28 @@ function renderWhatsNew(){
   }).join(""):"<div class='muted'>No papers added in the last 14 days for this selection.</div>";
 }
 
+// ---- biomedical concepts (PubTator3 entities) ----
+// merge case + simple plural variants (epilepsy/Epilepsy, seizure/seizures) -> one concept
+function entCounts(papers, mode){
+  const m={};
+  papers.forEach(p=>(p[mode]||[]).forEach(e=>{
+    const key=e.toLowerCase().replace(/s$/,"");
+    const o=m[key]||(m[key]={c:0,forms:{}});
+    o.c++; o.forms[e]=(o.forms[e]||0)+1;
+  }));
+  return Object.values(m).map(o=>[Object.entries(o.forms).sort((a,b)=>b[1]-a[1])[0][0], o.c])
+    .sort((a,b)=>b[1]-a[1]);
+}
+function renderEntities(papers){
+  if(!["eg","ed","ec"].includes(state.entmode)) state.entmode="eg";
+  const rows=entCounts(papers, state.entmode).slice(0,20);
+  const max=rows.length?rows[0][1]:1;
+  document.querySelectorAll("#entToggle .btn").forEach(b=>b.classList.toggle("active",b.dataset.et===state.entmode));
+  document.getElementById("entBox").innerHTML=rows.length?rows.map(([k,v])=>
+    `<div class="row"><span class="lab">${esc(k)}</span><span class="barwrap"><span class="barfill" style="width:${100*v/max}%"></span></span><span class="v">${v}</span></div>`).join("")
+    : '<div class="muted">No biomedical entities in this selection (non-clinical papers carry none).</div>';
+}
+
 // ---- most cited papers ----
 function renderMostCited(papers){
   const recent=state.citmode==="recent";
@@ -968,6 +1000,8 @@ function openAuthor(name){
   const tags=[...orgs].map(o=>`<span class="tag ${o}">${esc(ORG[o])}</span>`).join("");
   const cols=[...new Set(ps.map(p=>{const me=p.a.find(a=>a.n===name);return me&&me.cg;}).filter(c=>c&&c!=="Other"))];
   const cross=ps.filter(p=>paperColleges(p).length>=2).length;
+  const topG=entCounts(ps,"eg").slice(0,6).map(x=>x[0]);
+  const topD=entCounts(ps,"ed").slice(0,6).map(x=>x[0]);
   const yk=Object.keys(yrs).map(Number).sort(); const ymax=Math.max(1,...Object.values(yrs));
   const chart=yk.map(y=>`<div class="col" title="${y}: ${yrs[y]}"><span class="cv">${yrs[y]}</span><div class="cb" style="height:${Math.round(70*yrs[y]/ymax)}px"></div><span class="cl">${y}</span></div>`).join("");
   const stat=(n,k)=>`<div class="ms"><div class="mn">${n}</div><div class="mk">${k}</div></div>`;
@@ -992,6 +1026,7 @@ function openAuthor(name){
      <div class="chart" style="height:110px">${chart}</div>
      <div class="hint" style="font-size:11px;margin-top:14px">What their work is about</div>
      <div class="cloud">${cloudHTML(ps)}</div>
+     ${(topG.length||topD.length)?`<div class="muted" style="font-size:12px;margin-top:8px">${topG.length?"<b>Genes:</b> "+topG.map(esc).join(", "):""}${topG.length&&topD.length?" &nbsp;·&nbsp; ":""}${topD.length?"<b>Diseases:</b> "+topD.map(esc).join(", "):""}</div>`:""}
      <div class="hint" style="font-size:11px;margin-top:14px">Papers (newest first)</div>
      <div class="mplist">${plist}</div>`;
   document.getElementById("authorModal").classList.add("show");
@@ -1138,6 +1173,7 @@ function render(){
   renderSplit(papers);
   document.getElementById("cloudMain").innerHTML=cloudHTML(papers);
   renderMostCited(papers);
+  renderEntities(papers);
   renderList(papers);
   renderWhatsNew();
   renderCustom();
@@ -1221,6 +1257,8 @@ document.getElementById("search").oninput=e=>{state.search=e.target.value;render
 document.getElementById("hyper").onchange=e=>{state.hyper=e.target.checked;render();};
 // most-cited mode toggle (all-time vs hot now)
 document.querySelectorAll("#citAll,#citRecent").forEach(b=>b.onclick=()=>{state.citmode=b.dataset.cm;renderMostCited(filtered());saveState();});
+// biomedical-concepts toggle (genes/diseases/drugs/variants)
+document.querySelectorAll("#entToggle .btn").forEach(b=>b.onclick=()=>{state.entmode=b.dataset.et;renderEntities(filtered());saveState();});
 // light / dark theme toggle
 function applyTheme(){const light=state.theme==="light";document.documentElement.classList.toggle("light",light);document.getElementById("themeToggle").textContent=light?"🌙 Dark mode":"☀ Light mode";}
 document.getElementById("themeToggle").onclick=()=>{state.theme=state.theme==="light"?"dark":"light";applyTheme();saveState();};
