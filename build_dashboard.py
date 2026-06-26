@@ -121,6 +121,7 @@ CONFIG = json.load(open(os.path.join(HERE, "config.json")))
 ORG_NAMES = {o["id"]: o["name"] for o in CONFIG["organizations"]}
 THEME_NAMES = {t["id"]: t["name"] for t in CONFIG.get("themes", [])}
 THEME_KW = {t["id"]: [k.strip().lower() for k in t["kw"]] for t in CONFIG.get("themes", [])}
+THEME_ORGS = {t["id"]: t.get("orgs", ["cook", "uta"]) for t in CONFIG.get("themes", [])}
 GROUPS = CONFIG.get("groups", {})
 
 
@@ -214,8 +215,38 @@ def build_payload():
     return {
         "generated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "last_run": last_run, "today": today, "year": datetime.date.today().year,
-        "orgs": ORG_NAMES, "themes": THEME_NAMES, "theme_kw": THEME_KW, "papers": papers,
+        "orgs": ORG_NAMES, "themes": THEME_NAMES, "theme_kw": THEME_KW,
+        "theme_orgs": THEME_ORGS, "papers": papers,
     }
+
+
+REDIRECT = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>__TITLE__</title>
+<script>location.replace("dashboard.html#"+encodeURIComponent(JSON.stringify({o:"__ORG__",r:"all",y:[],t:[],im:0,st:"all"})));</script>
+</head><body style="font-family:sans-serif;background:#0f1419;color:#e7edf5;padding:40px">
+Opening __TITLE__… <a style="color:#4ea1ff" href="dashboard.html">open the dashboard</a>.</body></html>"""
+
+LANDING = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research Output — choose a view</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f1419;color:#e7edf5;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px}
+h1{font-size:24px;margin:0 0 6px;font-weight:650}.sub{color:#8da2bd;font-size:14px;margin-bottom:28px;text-align:center}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;max-width:960px;width:100%}
+.c{background:#1a2230;border:1px solid #2c3a4f;border-top:4px solid var(--a);border-radius:14px;padding:22px 20px;cursor:pointer;text-decoration:none;color:inherit;transition:transform .08s,border-color .15s}
+.c:hover{transform:translateY(-3px);border-color:var(--a)}
+.c h2{margin:0 0 6px;font-size:18px;color:var(--a)}.c p{margin:0;color:#8da2bd;font-size:13px;line-height:1.5}
+.foot{color:#5e6b82;font-size:12px;margin-top:26px;text-align:center;max-width:620px;line-height:1.5}
+</style></head><body>
+<h1>Research Output Dashboard</h1>
+<div class="sub">Cook Children's &amp; UT Arlington · choose a view</div>
+<div class="cards">
+  <a class="c" style="--a:#4ea1ff" href="dashboard.html"><h2>Combined</h2><p>Both organizations together — totals, trends, and comparisons across Cook Children's and UT Arlington.</p></a>
+  <a class="c" style="--a:#5fbf45" href="cook.html"><h2>Cook Children's</h2><p>Pediatric clinical &amp; translational research — service lines, clinical trials, and citation impact.</p></a>
+  <a class="c" style="--a:#f5933b" href="uta.html"><h2>UT Arlington</h2><p>University research across all colleges — field-normalized impact, disciplines, and departments.</p></a>
+  <a class="c" style="--a:#9b86f5" href="partnership.html"><h2>Cook&nbsp;↔&nbsp;UTA Partnership</h2><p>Joint publications and cross-appointed faculty — the collaboration between the two institutions.</p></a>
+</div>
+<div class="foot">PubMed-indexed journal articles only · affiliation-scoped · updates daily. Citations: OpenAlex · field-normalized impact (RCR): NIH iCite.</div>
+</body></html>"""
 
 
 def main():
@@ -224,6 +255,15 @@ def main():
     with open(OUT, "w", encoding="utf-8") as f:
         f.write(htmlout)
     print(f"Wrote {OUT} ({os.path.getsize(OUT)//1024} KB, {len(payload['papers'])} papers)")
+    # landing chooser + clean branded redirect URLs (for separate shareable links)
+    aux = {"index.html": LANDING,
+           "cook.html": REDIRECT.replace("__ORG__", "cook").replace("__TITLE__", "Cook Children's research"),
+           "uta.html": REDIRECT.replace("__ORG__", "uta").replace("__TITLE__", "UT Arlington research"),
+           "partnership.html": REDIRECT.replace("__ORG__", "partner").replace("__TITLE__", "Cook ↔ UTA partnership")}
+    for fn, html_ in aux.items():
+        with open(os.path.join(HERE, fn), "w", encoding="utf-8") as f:
+            f.write(html_)
+    print(f"Wrote landing + redirects: {', '.join(aux)}")
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -235,14 +275,17 @@ TEMPLATE = r"""<!DOCTYPE html>
 <style>
   :root{
     --bg:#0f1419; --panel:#1a2230; --panel2:#222d3d; --line:#2c3a4f;
-    --txt:#e7edf5; --muted:#a6b8d1; --accent:#4ea1ff; --cook:#ff7a59; --uta:#5ad1a8;
+    --txt:#e7edf5; --muted:#a6b8d1; --accent:#4ea1ff; --cook:#5fbf45; --uta:#f5933b;
     --bar:#33425a; --txt2:#c4d2e6;
   }
   html.light{
     --bg:#f4f7fb; --panel:#ffffff; --panel2:#eef2f8; --line:#d6e0ec;
-    --txt:#1a2230; --muted:#566377; --accent:#2570d4; --cook:#cf5430; --uta:#1f9c77;
+    --txt:#1a2230; --muted:#566377; --accent:#2570d4; --cook:#3f8f2e; --uta:#c96a12;
     --bar:#dde6f0; --txt2:#33425a;
   }
+  html.org-cook{--accent:var(--cook)}
+  html.org-uta{--accent:var(--uta)}
+  html.org-partner{--accent:#9b86f5}
   *{box-sizing:border-box}
   body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
        background:var(--bg);color:var(--txt)}
@@ -252,7 +295,11 @@ TEMPLATE = r"""<!DOCTYPE html>
   h1{margin:0;font-size:20px;font-weight:650}
   .sub{color:var(--muted);font-size:12.5px;margin-top:3px}
   .wrap{padding:18px 26px;max-width:1280px;margin:0 auto}
-  .controls{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:18px;
+  .orgswitch{display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+  .orgswitch .ol{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+  .orgswitch .btns{gap:8px}
+  .orgswitch .btn{font-size:15px;font-weight:500;padding:9px 20px;border-radius:10px}
+  .controls{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:10px;
             background:var(--panel);padding:14px 16px;border-radius:12px;border:1px solid var(--line)}
   .cgroup{display:flex;flex-direction:column;gap:6px}
   .clabel{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
@@ -278,8 +325,8 @@ TEMPLATE = r"""<!DOCTYPE html>
   .row .barfill{display:block;height:100%;background:var(--accent);border-radius:5px}
   .row .v{width:34px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
   .tag{display:inline-block;font-size:11px;padding:1px 5px;border-radius:4px;margin-left:5px;vertical-align:middle}
-  .tag.cook{background:rgba(255,122,89,.18);color:var(--cook)}
-  .tag.uta{background:rgba(90,209,168,.18);color:var(--uta)}
+  .tag.cook{background:rgba(95,191,69,.17);color:var(--cook)}
+  .tag.uta{background:rgba(245,147,59,.17);color:var(--uta)}
   table{width:100%;border-collapse:collapse}
   .plist{max-height:560px;overflow:auto}
   .pitem{padding:10px 0;border-bottom:1px solid var(--line)}
@@ -299,7 +346,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   .sechead{margin:26px 0 4px;font-size:16px;font-weight:650}
   .secsub{color:var(--muted);font-size:12.5px;margin-bottom:14px}
   .delta{font-size:12px;margin-left:7px;font-weight:600}
-  .up{color:var(--uta)} .down{color:var(--cook)} .flat{color:var(--muted)}
+  .up{color:#37b87e} .down{color:#e0623f} .flat{color:var(--muted)}
   .atab{width:100%;border-collapse:collapse;font-size:12.5px}
   .atab th{text-align:left;color:var(--muted);font-weight:500;padding:5px 6px;border-bottom:1px solid var(--line);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
   .atab td{padding:5px 6px;border-bottom:1px solid var(--line)}
@@ -310,7 +357,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   .alink:hover{color:var(--accent);border-bottom-color:var(--accent)}
   .selrow{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
   .live{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--uta);box-shadow:0 0 0 0 rgba(90,209,168,.6);animation:pulse 2s infinite}
+  .dot{width:8px;height:8px;border-radius:50%;background:#37b87e;box-shadow:0 0 0 0 rgba(90,209,168,.6);animation:pulse 2s infinite}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(90,209,168,.5)}70%{box-shadow:0 0 0 7px rgba(90,209,168,0)}100%{box-shadow:0 0 0 0 rgba(90,209,168,0)}}
   .stack{display:flex;align-items:flex-end;gap:6px;height:150px;margin-top:10px}
   .stack .scol{flex:1;display:flex;flex-direction:column-reverse;height:100%;border-radius:4px;overflow:hidden}
@@ -387,6 +434,10 @@ TEMPLATE = r"""<!DOCTYPE html>
   <button class="btn" id="themeToggle" style="margin-left:auto;font-size:12px">☀ Light mode</button>
 </nav>
 <div class="wrap">
+  <div class="orgswitch">
+    <span class="ol">Viewing</span>
+    <div class="btns" id="orgBtns"></div>
+  </div>
   <div class="exec" id="sec-exec">
     <h2>Executive snapshot <span class="hint" style="font-weight:400" id="execScope"></span></h2>
     <div class="lead" id="execLead"></div>
@@ -399,10 +450,6 @@ TEMPLATE = r"""<!DOCTYPE html>
     <br><b>Author &amp; group metrics are affiliation-scoped:</b> they count only papers carrying a Cook Children's / UT Arlington affiliation — <b>not</b> an individual's full career. A researcher who recently joined (e.g. in 2026) shows only papers published since, even if they have a long prior record elsewhere.
   </div>
   <div class="controls">
-    <div class="cgroup">
-      <span class="clabel">Organization</span>
-      <div class="btns" id="orgBtns"></div>
-    </div>
     <div class="cgroup">
       <span class="clabel">Time window <span class="hint" style="font-weight:400;text-transform:none;letter-spacing:0">· click multiple years to combine them</span></span>
       <div class="btns" id="timeBtns"></div>
@@ -430,7 +477,7 @@ TEMPLATE = r"""<!DOCTYPE html>
     <div class="cgroup">
       <span class="clabel">Options</span>
       <div class="btns">
-        <label class="btn helptip" style="cursor:pointer" title="Papers with more than 50 authors (e.g. large physics/genomics consortia) can dominate the counts. Excluding them reflects individual and typical-team output."><input type="checkbox" id="hyper" checked style="vertical-align:middle;margin-right:5px">Exclude mega-collaboration papers (&gt;50 authors)</label>
+        <label class="btn helptip" id="hyperWrap" style="cursor:pointer" title="Papers with more than 50 authors (e.g. large physics/genomics consortia) can dominate the counts. Excluding them reflects individual and typical-team output."><input type="checkbox" id="hyper" checked style="vertical-align:middle;margin-right:5px">Exclude mega-collaboration papers (&gt;50 authors)</label>
         <button class="btn" id="copyLink">🔗 Copy link to this view</button>
         <button class="btn" id="csvBtn">⬇ Download CSV</button>
         <button class="btn" id="pdfBtn">🖨 Print / Save as PDF</button>
@@ -461,6 +508,8 @@ TEMPLATE = r"""<!DOCTYPE html>
     <div class="panel"><h2>Most first-author <span class="hint helptip" title="First author — usually the person who led the day-to-day work (often a trainee or early-career researcher).">lead author</span></h2><div id="lbFirst"></div></div>
     <div class="panel"><h2>Most last-author <span class="hint helptip" title="Last (senior) author — typically the lab head / principal investigator overseeing the work.">senior author</span></h2><div id="lbLast"></div></div>
   </div>
+
+  <div class="panel" id="crossApptPanel" style="display:none"><h2>Cross-appointed faculty <span class="hint">people who publish under both Cook Children's and UT Arlington · bar = joint papers</span></h2><div id="crossAppt"></div></div>
 
   <div id="sec-departments"></div>
   <div class="panel"><h2>What the work is about <span class="hint">most frequent words in paper titles · current filter</span></h2><div class="cloud" id="cloudMain"></div></div>
@@ -549,13 +598,22 @@ const YEARS = [];
 for(let y=DATA.year;y>=2020;y--) YEARS.push(y);
 const SPLITS=[["dept","Department"],["college","College/Line"],["theme","Theme"],["study","Study type"],["topic","Topic"],["journal","Journal"]];
 
-function orgOk(p){return state.org==="all"||p.o.includes(state.org);}
+function orgOk(p){
+  if(state.org==="partner") return p.o.includes("cook")&&p.o.includes("uta");
+  return state.org==="all"||p.o.includes(state.org);
+}
 function timeOk(p){
   if(state.years.length) return state.years.includes(p.y);   // one or more years selected
   const r=RELS.find(t=>t[0]===state.rel);
   return r?r[2](p):true;
 }
-function authOrgOk(a){return state.org==="all"||a.o.includes(state.org);}
+function authOrgOk(a){
+  if(state.org==="partner") return a.o.length>0;
+  return state.org==="all"||a.o.includes(state.org);
+}
+function orgLabel(){return state.org==="partner"?"Cook ↔ UT Arlington partnership":state.org==="all"?"Cook Children's & UT Arlington":(ORG[state.org]||state.org);}
+function groupNoun(){return state.org==="cook"?"service line":state.org==="uta"?"college":"college / service line";}
+function applyOrgBrand(){const c=document.documentElement.classList;c.toggle("org-cook",state.org==="cook");c.toggle("org-uta",state.org==="uta");c.toggle("org-partner",state.org==="partner");}
 
 function ifOk(p){return state.ifmin===0 || (p.if!=null && p.if>state.ifmin);}
 function hyperOk(p){return !state.hyper || p.n<=HYPER_MAX;}
@@ -614,7 +672,7 @@ function renderLB(id,rows){
 // ---- generic split (dept/college are click-through to a group scorecard)
 function splitDef(){
   switch(state.split){
-    case "college": return [p=>[...new Set(p.a.filter(authOrgOk).map(a=>a.cg).filter(Boolean))], "college / service line", "college"];
+    case "college": return [p=>[...new Set(p.a.filter(authOrgOk).map(a=>a.cg).filter(Boolean))], groupNoun(), "college"];
     case "theme":   return [p=>(p.th||[]).map(t=>THEMES[t]||t), "research theme", null];
     case "study":   return [p=>[p.st||"Other"], "study type", null];
     case "topic":   return [p=>p.tg||[], "topic", null];
@@ -968,7 +1026,7 @@ function openGroup(kind, value){
   document.getElementById("authorBox").innerHTML=
     `<span class="x" onclick="closeAuthor()">&times;</span>
      <h3>${esc(value)}</h3>
-     <div class="muted" style="font-size:12px">${kind==="college"?"College / service line":"Department"} scorecard · all tracked years${state.org!=="all"?" · "+esc(ORG[state.org]):""} · counts only papers with a tracked affiliation.</div>
+     <div class="muted" style="font-size:12px">${kind==="college"?(groupNoun().charAt(0).toUpperCase()+groupNoun().slice(1)):"Department"} scorecard · all tracked years${state.org!=="all"?" · "+esc(ORG[state.org]):""} · counts only papers with a tracked affiliation.</div>
      <div class="mstats">
        ${stat(ps.length.toLocaleString(),"papers")}${stat(auth.size,"people")}
        ${stat(ifs.length?mean(ifs).toFixed(1):"–","avg impact")}${stat(rcrs.length?mean(rcrs).toFixed(2):"–","mean RCR")}
@@ -996,7 +1054,7 @@ function renderExec(){
   const totalCit=sc.reduce((s,p)=>s+(p.c||0),0);
   const auth=new Set(); sc.forEach(p=>p.a.forEach(a=>{if(authOrgOk(a))auth.add(a.n);}));
   const pubsY1=cnt(y1),pubsY0=cnt(y0), pct=pubsY0?Math.round((pubsY1-pubsY0)/pubsY0*100):0;
-  const orgName=state.org==="all"?"Cook Children's & UT Arlington":ORG[state.org];
+  const orgName=orgLabel();
   document.getElementById("execScope").textContent="· "+orgName+(state.hyper?" · excl. mega-collaborations":"");
   document.getElementById("execLead").innerHTML=
     `In <b>${y1}</b>, ${esc(orgName)} published <b>${pubsY1.toLocaleString()}</b> papers `
@@ -1050,8 +1108,26 @@ function renderSmallMultiples(papers){
   }).join(""):"<div class='muted'>No data in this selection.</div>";
 }
 
+// ---- cross-appointed faculty (publish under BOTH orgs) — for the Partnership view ----
+function renderCrossAppointed(){
+  const m={};
+  DATA.papers.forEach(p=>{const joint=p.o.includes("cook")&&p.o.includes("uta");
+    p.a.forEach(a=>{const o=m[a.n]||(m[a.n]={orgs:new Set(),tot:0,joint:0});a.o.forEach(x=>o.orgs.add(x));o.tot++;if(joint)o.joint++;});});
+  const rows=Object.entries(m).filter(([,o])=>o.orgs.has("cook")&&o.orgs.has("uta"))
+    .sort((a,b)=>b[1].joint-a[1].joint||b[1].tot-a[1].tot).slice(0,20);
+  const max=Math.max(1,...rows.map(r=>r[1].joint));
+  document.getElementById("crossAppt").innerHTML=rows.length?rows.map(([n,o])=>
+    `<div class="row"><span class="lab alink" data-n="${esc(n)}">${esc(n)} <span class="tag cook">${esc(ORG.cook)}</span><span class="tag uta">${esc(ORG.uta)}</span></span>`
+    +`<span class="barwrap"><span class="barfill" style="width:${100*o.joint/max}%"></span></span>`
+    +`<span class="v" title="${o.tot} total papers">${o.joint}</span></div>`).join("")
+    : '<div class="muted">No dual-affiliated authors found.</div>';
+}
+
 function render(){
   const papers=filtered();
+  const partner=state.org==="partner";
+  document.getElementById("crossApptPanel").style.display=partner?"":"none";
+  if(partner)renderCrossAppointed();
   renderExec();
   renderActiveFilters();
   renderCards(papers);
@@ -1088,17 +1164,27 @@ function sync(){
   const cookB=document.querySelector('#orgBtns .btn[data-v="cook"]');if(cookB)cookB.classList.add("cook");
   const utaB=document.querySelector('#orgBtns .btn[data-v="uta"]');if(utaB)utaB.classList.add("uta");
   // reflect state into inputs (matters after restoring from localStorage)
-  document.querySelectorAll("#themeBtns .btn").forEach(b=>b.classList.toggle("active",state.themes.includes(b.dataset.v)));
+  renderThemeChips();
   const ss=document.getElementById("stypeSel"); if(ss)ss.value=state.stype;
   const hy=document.getElementById("hyper"); if(hy)hy.checked=state.hyper;
   const cm=document.getElementById("cMetric"); if(cm)cm.value=state.cmetric;
   const cd=document.getElementById("cDim"); if(cd)cd.value=state.cdim;
+  // adaptive grouping label + hide the mega-collaboration option for Cook (no consortium papers)
+  const cb=document.querySelector('#splitBtns .btn[data-v="college"]');
+  if(cb)cb.textContent=state.org==="cook"?"Service line":state.org==="uta"?"College":"College/Line";
+  const hw=document.getElementById("hyperWrap"); if(hw)hw.style.display=state.org==="cook"?"none":"";
 }
 function saveState(){try{localStorage.setItem("cookuta_state",JSON.stringify(state));}catch(e){}}
 function restoreState(){try{const s=JSON.parse(localStorage.getItem("cookuta_state")||"{}");Object.keys(s).forEach(k=>{if(k in state)state[k]=s[k];});}catch(e){}}
 
-const orgItems=[["all","All organizations"],...Object.entries(ORG)];
-mkBtns("orgBtns",orgItems,"org");
+const orgItems=[["all","All organizations"],...Object.entries(ORG),["partner","Cook ↔ UTA partnership"]];
+// prominent top-level org switch: also sets org-appropriate defaults + branding
+document.getElementById("orgBtns").innerHTML=orgItems.map(it=>`<button class="btn ${it[0]==='cook'?'cook':it[0]==='uta'?'uta':''}" data-v="${it[0]}">${esc(it[1])}</button>`).join("");
+document.querySelectorAll("#orgBtns .btn").forEach(b=>b.onclick=()=>{
+  state.org=b.dataset.v;
+  state.hyper=(b.dataset.v!=="cook");   // Cook has no mega-collaborations; UTA/All default to excluding them
+  applyOrgBrand(); sync(); render();
+});
 mkBtns("splitBtns",SPLITS,"split");
 // time window: relative buttons (single-select) + year buttons (multi-select)
 document.getElementById("timeBtns").innerHTML=
@@ -1115,10 +1201,18 @@ document.querySelectorAll("#timeBtns .btn[data-year]").forEach(b=>b.onclick=()=>
 // impact-factor radio buttons (store the numeric threshold)
 document.getElementById("ifBtns").innerHTML=IF_LEVELS.map(l=>`<button class="btn" data-v="${l[0]}">${l[1]}</button>`).join("");
 document.querySelectorAll("#ifBtns .btn").forEach(b=>b.onclick=()=>{state.ifmin=Number(b.dataset.v);sync();render();});
-// research-theme chips (multi-select, OR)
-document.getElementById("themeBtns").innerHTML=Object.entries(THEMES).map(([k,v])=>`<button class="btn" data-v="${k}">${v}</button>`).join("");
-document.querySelectorAll("#themeBtns .btn").forEach(b=>b.onclick=()=>{const v=b.dataset.v;const i=state.themes.indexOf(v);if(i<0)state.themes.push(v);else state.themes.splice(i,1);sync();render();});
-document.getElementById("themeHint").textContent="(any selected)";
+// research-theme chips (multi-select, OR) — the set shown adapts to the chosen organization
+const THEME_ORGS=DATA.theme_orgs||{};
+function applicableThemes(){
+  return Object.keys(THEMES).filter(k=>state.org==="all"||state.org==="partner"||(THEME_ORGS[k]||["cook","uta"]).includes(state.org));
+}
+function renderThemeChips(){
+  const ok=applicableThemes();
+  state.themes=state.themes.filter(t=>ok.includes(t));   // drop themes not shown for this org
+  document.getElementById("themeBtns").innerHTML=ok.map(k=>`<button class="btn${state.themes.includes(k)?" active":""}" data-v="${k}">${esc(THEMES[k])}</button>`).join("");
+}
+document.getElementById("themeBtns").addEventListener("click",e=>{const b=e.target.closest(".btn");if(!b)return;const v=b.dataset.v;const i=state.themes.indexOf(v);if(i<0)state.themes.push(v);else state.themes.splice(i,1);sync();render();});
+document.getElementById("themeHint").textContent="(adapts to organization · any selected)";
 // study-type selector
 const STYPES=[["all","All study types"],["trials","Clinical trials (incl. RCT)"],["Randomized controlled trial","Randomized controlled trial"],["Clinical trial","Clinical trial"],["Meta-analysis","Meta-analysis"],["Systematic review","Systematic review"],["Review","Review"],["Observational study","Observational study"],["Case report","Case report"]];
 document.getElementById("stypeSel").innerHTML=STYPES.map(s=>`<option value="${s[0]}">${s[1]}</option>`).join("");
@@ -1201,6 +1295,7 @@ document.getElementById("meta").innerHTML=
 restoreState();
 loadHash();   // a shared URL overrides saved local state
 applyTheme();
+applyOrgBrand();
 sync();render();
 </script>
 </body>

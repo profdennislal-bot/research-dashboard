@@ -18,12 +18,20 @@
     }
   ],
   "_themes_note": "A paper gets a theme if its title/abstract/MeSH/keywords contain any phrase (case-insensitive substring). Stems like 'epilep','oncolog' are intentional.",
+  "_themes_orgs_note": "'orgs' controls which org views show the chip; pipeline computes the flag for all papers regardless.",
   "themes": [
-    {"id": "genetics", "name": "Genetics", "kw": ["gene ", "genes", "genetic", "genomic", "mutation", "variant", "sequencing", "exome", "genome", "allele", "chromosom", "inherited"]},
-    {"id": "precision", "name": "Precision medicine", "kw": ["precision medicine", "personalized medicine", "personalised medicine", "pharmacogenom", "targeted therap", "biomarker", "companion diagnostic", "molecular profiling", "next-generation sequencing", "whole exome", "whole genome", "molecularly targeted"]},
-    {"id": "oncology", "name": "Oncology", "kw": ["cancer", "tumor", "tumour", "oncolog", "carcinoma", "leukemia", "leukaemia", "lymphoma", "sarcoma", "melanoma", "neoplas", "chemotherap", "immunotherap", "metasta", "malignan"]},
-    {"id": "epilepsy", "name": "Epilepsy", "kw": ["epilep", "seizure", "anticonvulsant", "antiseizure", "electroencephalograph", "ictal", "convulsion", "dravet", "lennox"]},
-    {"id": "cardiology", "name": "Cardiology", "kw": ["cardiac", "cardiovascular", "cardiolog", "arrhythmia", "echocardiograph", "myocard", "coronary", "atrial", "ventricular", "congenital heart", "heart failure", "heart disease"]}
+    {"id": "genetics", "name": "Genetics", "orgs": ["cook", "uta"], "kw": ["gene ", "genes", "genetic", "genomic", "mutation", "variant", "sequencing", "exome", "genome", "allele", "chromosom", "inherited"]},
+    {"id": "precision", "name": "Precision medicine", "orgs": ["cook", "uta"], "kw": ["precision medicine", "personalized medicine", "personalised medicine", "pharmacogenom", "targeted therap", "biomarker", "companion diagnostic", "molecular profiling", "next-generation sequencing", "whole exome", "whole genome", "molecularly targeted"]},
+    {"id": "oncology", "name": "Oncology", "orgs": ["cook", "uta"], "kw": ["cancer", "tumor", "tumour", "oncolog", "carcinoma", "leukemia", "leukaemia", "lymphoma", "sarcoma", "melanoma", "neoplas", "chemotherap", "immunotherap", "metasta", "malignan"]},
+    {"id": "epilepsy", "name": "Epilepsy", "orgs": ["cook", "uta"], "kw": ["epilep", "seizure", "anticonvulsant", "antiseizure", "electroencephalograph", "ictal", "convulsion", "dravet", "lennox"]},
+    {"id": "cardiology", "name": "Cardiology", "orgs": ["cook", "uta"], "kw": ["cardiac", "cardiovascular", "cardiolog", "arrhythmia", "echocardiograph", "myocard", "coronary", "atrial", "ventricular", "congenital heart", "heart failure", "heart disease"]},
+    {"id": "neonatology", "name": "Neonatology", "orgs": ["cook"], "kw": ["neonat", "newborn", "preterm", "premature", "nicu", "perinat"]},
+    {"id": "diabetes", "name": "Diabetes & endocrine", "orgs": ["cook", "uta"], "kw": ["diabet", "insulin", "glycemic", "hyperglycemia", "hypoglycemia", "endocrin", "obesity", "metabolic syndrome", "thyroid"]},
+    {"id": "rare", "name": "Rare & congenital", "orgs": ["cook", "uta"], "kw": ["rare disease", "orphan drug", "congenital", "inborn error", "undiagnosed", "malformation"]},
+    {"id": "neuro", "name": "Neuroscience", "orgs": ["cook", "uta"], "kw": ["neuroimaging", "magnetoencephalograph", "functional mri", "fmri", "near-infrared spectroscopy", "cognitive", "neural network", "brain connectivity", "neurodevelopment"]},
+    {"id": "materials", "name": "Materials & chemistry", "orgs": ["uta"], "kw": ["material", "polymer", "nanoparticle", "nanomaterial", "catalys", "chromatograph", "mass spectrometry", "crystal structure", "composite", "biomaterial"]},
+    {"id": "ai", "name": "Computation & AI", "orgs": ["uta"], "kw": ["machine learning", "deep learning", "artificial intelligence", "neural network", "algorithm", "computational", "computer simulation", "data-driven", "predictive model"]},
+    {"id": "behavioral", "name": "Behavioral & mental health", "orgs": ["cook", "uta"], "kw": ["mental health", "depression", "anxiety", "behavioral health", "substance use", "psychosocial", "well-being", "social work", "trauma"]}
   ],
   "_groups_note": "Maps an author's parsed department (lowercased substring) to a College (UTA) or service line (Cook). First match wins; unmatched -> 'Other'.",
   "groups": {
